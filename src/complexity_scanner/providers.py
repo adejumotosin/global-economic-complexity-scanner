@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import requests
 import pandas as pd
@@ -11,6 +12,18 @@ _SESSION.headers.update({"User-Agent": "Global-Economic-Complexity-Scanner/0.1 r
 
 class ProviderError(RuntimeError):
     pass
+
+def _numeric_country_id(value) -> int:
+    """Normalize Atlas country IDs such as 156 or 'country-156' to numeric M49-style IDs."""
+    if isinstance(value, int):
+        return value
+    text = str(value or "").strip()
+    if text.isdigit():
+        return int(text)
+    match = re.search(r"(?:^|[-_])(\d+)$", text)
+    if match:
+        return int(match.group(1))
+    raise ProviderError(f"Unrecognized Atlas country ID format: {text[:40] or 'empty'}")
 
 def _graphql(query: str, timeout: int) -> dict:
     try:
@@ -58,19 +71,20 @@ def atlas_country_history(settings: Settings) -> pd.DataFrame:
         chunks, alias_map = [], {}
         for i, (iso, meta) in enumerate(batch):
             alias = f"c{i}"
-            alias_map[alias] = (iso, meta)
+            numeric_id = _numeric_country_id(meta["countryId"])
+            alias_map[alias] = (iso, meta, numeric_id)
             chunks.append(
-                f'{alias}: countryYear(countryId: {int(meta["countryId"])}, '
+                f'{alias}: countryYear(countryId: {numeric_id}, '
                 f'yearMin: {y0}, yearMax: {settings.trade_year}) {{ {fields} }}'
             )
         data = _graphql("{\n" + "\n".join(chunks) + "\n}", settings.request_timeout_seconds)
         for alias, series in data.items():
-            iso, meta = alias_map.get(alias, ("", {}))
+            iso, meta, numeric_id = alias_map.get(alias, ("", {}, None))
             for obs in series or []:
                 rows.append({
                     "iso3": iso,
                     "country": meta.get("nameEn") or iso,
-                    "country_id": int(meta["countryId"]),
+                    "country_id": numeric_id,
                     **obs,
                 })
         time.sleep(0.05)
@@ -151,6 +165,7 @@ def world_bank_indicators(settings: Settings) -> pd.DataFrame:
     return wide
 
 def atlas_product_opportunities(country_id: int, settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame]:
+    numeric_id = _numeric_country_id(country_id)
     query = f"""
     {{
       products: productHs92(productLevel: {settings.product_level}) {{
@@ -162,7 +177,7 @@ def atlas_product_opportunities(country_id: int, settings: Settings) -> tuple[pd
         greenProduct
       }}
       country: countryProductYear(
-        countryId: {int(country_id)}
+        countryId: {numeric_id}
         productClass: HS92
         productLevel: {settings.product_level}
         yearMin: {settings.trade_year}
