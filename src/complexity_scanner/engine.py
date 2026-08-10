@@ -48,7 +48,8 @@ def run_scanner(settings: Settings = SETTINGS, force: bool = False) -> dict:
         errors["world_bank_metadata"] = str(exc); meta = pd.DataFrame()
 
     if history.empty:
-        raise ProviderError("Economic complexity data are unavailable. Atlas provider returned no usable country history.")
+        detail = errors.get("atlas") or "Atlas provider returned no rows"
+        raise ProviderError(f"Economic complexity data are unavailable. Atlas provider detail: {detail}")
 
     scored = build_country_scores(history, macro, meta, settings.trade_year)
     records = [_record(row) for _, row in scored.iterrows()]
