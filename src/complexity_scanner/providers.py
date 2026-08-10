@@ -123,8 +123,7 @@ def world_bank_indicators(settings: Settings) -> pd.DataFrame:
     params = {
         "format": "json",
         "source": 2,
-        "mrv": 6,
-        "gapfill": "Y",
+        "date": f"{settings.trade_year - 5}:{settings.trade_year}",
         "per_page": 20000,
     }
     try:
@@ -144,12 +143,14 @@ def world_bank_indicators(settings: Settings) -> pd.DataFrame:
         code = (x.get("indicator") or {}).get("id")
         iso = str(x.get("countryiso3code") or "").upper()
         value = x.get("value")
-        if code not in reverse or iso not in settings.universe or value is None:
+        year_text = str(x.get("date", ""))
+        year = int(year_text) if year_text.isdigit() else None
+        if code not in reverse or iso not in settings.universe or value is None or year is None or year > settings.trade_year:
             continue
         rows.append({
             "iso3": iso,
             "indicator": reverse[code],
-            "year": int(x["date"]) if str(x.get("date", "")).isdigit() else None,
+            "year": year,
             "value": float(value),
         })
     df = pd.DataFrame(rows)
